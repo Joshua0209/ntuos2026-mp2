@@ -2,9 +2,9 @@
 
 Please ensure all items are completed and checked before submission. Unchecked items will result in a **0 score** locally and on GitHub Actions.
 
-- [ ] Fill in your actual Student ID, Name, and GitHub Username in `student.conf`. Default values are NOT accepted.
-- [ ] Invite all TAs as collaborators in your private repository (For MP2: `Shiritai`, `Typas`).
-- [ ] Verify that all TAs have accepted the invitation (TAs accept daily; check the day after inviting).
+- [x] Fill in your actual Student ID, Name, and GitHub Username in `student.conf`. Default values are NOT accepted.
+- [x] Invite all TAs as collaborators in your private repository (For MP2: `Shiritai`, `Typas`).
+- [x] Verify that all TAs have accepted the invitation (TAs accept daily; check the day after inviting).
 - [ ] Run `./mp.sh init` and `./mp.sh test` (or `./mp.sh grade`) and ensure the results match expectations.
 - [ ] Check and tick all items in `student.conf`, `kernel/file.c`, `kernel/slab.h`, `kernel/slab.c`, and this file.
     - Example: Change `- [ ]` to `- [x]` to mark as completed.
