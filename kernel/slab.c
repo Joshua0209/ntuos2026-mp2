@@ -14,11 +14,16 @@ void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *)
 
 struct kmem_cache *kmem_cache_create(char *name, uint object_size)
 {
-  // TODO: Implement kmem_cache_create
-  printf("[SLAB] TODO: kmem_cache_create is not yet implemented \n");
-  
+  uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
   struct kmem_cache *cache;
-  cache = 0;
+  cache = (struct kmem_cache *)kalloc();
+
+  safestrcpy(cache->name, name, MP2_CACHE_MAX_NAME);
+  cache->object_size = object_size;
+  initlock(&cache->lock, name);
+
+  printf("[SLAB] New kmem_cache (name: %s, object size: %u bytes, at: %p, max objects per slab: %u, support in cache obj: %u) is created\n", 
+    name, object_size, cache, max_objs, 0); // FIXME: in Internal Fragmentation Optimization
   return cache;
 }
 

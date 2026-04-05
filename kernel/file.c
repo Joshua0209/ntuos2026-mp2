@@ -31,7 +31,8 @@ void fileprint_metadata(void *f) {
 void
 fileinit(void)
 {
-  initlock(&ftable.lock, "ftable");
+  // initlock(&ftable.lock, "ftable");
+  file_cache = kmem_cache_create("file", sizeof(struct file));
 }
 
 // Allocate a file structure.
