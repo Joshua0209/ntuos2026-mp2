@@ -7,6 +7,34 @@
 #include "slab.h"
 #include "list.h"
 
+
+static void
+slab_shuffle_freelist(struct slab *s, uint object_size)
+{
+  void *slots[128];  // max_objs <= 128 for any realistic object_size
+  uint n = s->max_objs;
+  uint64 seed = r_time();
+  void *objs_start = (void *)((char *)s + sizeof(struct slab));
+
+  for(uint i = 0; i < n; i++) {
+    slots[i] = objs_start + i * object_size;
+  }
+
+  for (uint i = n-1 ; i > 0; i--) {
+    seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+    uint j = (uint)(seed >> 33) % (i + 1);
+    void *tmp = slots[i];
+    slots[i] = slots[j];
+    slots[j] = tmp;
+  }
+
+  for (uint i = 0; i < n-1 ; i++) {
+    *(void **)slots[i] = slots[i+1];
+  }
+  *(void **)slots[n-1] = 0;
+  s->freelist = (void **)slots[0];
+}
+
 void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *))
 {
   acquire(&cache->lock);
@@ -108,15 +136,16 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
     uint object_size = cache->object_size;
     uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
 
-    void *objs_start = (void *)((char *)new_s + sizeof(struct slab));
-    new_s->freelist = (void **)objs_start;
-    for (uint i = 0; i < max_objs; i++) {
-      void **slot = (void **)((char *)objs_start + i * object_size);
-      *slot = (i < max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
-    }
+    // void *objs_start = (void *)((char *)new_s + sizeof(struct slab));
+    // new_s->freelist = (void **)objs_start;
+    // for (uint i = 0; i < max_objs; i++) {
+    //   void **slot = (void **)((char *)objs_start + i * object_size);
+    //   *slot = (i < max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
+    // }
 
     new_s->max_objs = max_objs;
     new_s->in_use = 0;
+    slab_shuffle_freelist(new_s, object_size);
     list_add(&new_s->list, &cache->partial);
     printf("[SLAB] A new slab %p (%s) is allocated\n", new_s, cache->name);
   }
