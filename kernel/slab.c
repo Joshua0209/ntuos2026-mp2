@@ -37,18 +37,30 @@ slab_shuffle_freelist(struct slab *s, uint object_size)
 
 void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *))
 {
+  uint cache_max_objs = (MP2_SLAB_SIZE - sizeof(struct kmem_cache)) / cache->object_size;
   acquire(&cache->lock);
   printf("[SLAB] kmem_cache { name: %s, object_size: %u, at: %p, in_cache_obj: %u }\n",
-    cache->name, cache->object_size, cache, cache->cache_max_objs);
+    cache->name, cache->object_size, cache, cache_max_objs);
 
   // print cache
-  if (cache->cache_max_objs > 0) {
+  if (cache_max_objs > 0) {
+    void *objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
+
+    // Rebuild freelist chain in free objects for display
+    void *fl = 0;
+    for (uint i = cache_max_objs; i > 0; i--) {
+      if (!(cache->cache_bitmap & (1u << (i - 1)))) {
+        void **sp = (void **)((char *)objs_start + (i - 1) * cache->object_size);
+        *sp = fl;
+        fl = (void *)sp;
+      }
+    }
+
     printf("[SLAB] \t[ cache\tslabs ]\n");
     printf("[SLAB] \t\t[ slab %p ] { freelist: %p, nxt: %p, max_objs: %u }\n",
-      cache, cache->cache_freelist, (void *)0, cache->cache_max_objs);
+      cache, fl, (void *)0, cache_max_objs);
 
-    void *objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
-    for (uint i = 0; i < cache->cache_max_objs; i++) {
+    for (uint i = 0; i < cache_max_objs; i++) {
       void **slot = (void **)((char *)objs_start + i * cache->object_size);
       printf("[SLAB] \t\t\t[ idx %u ] { addr: %p, as_ptr: %p, as_obj: {",
         i, slot, *slot);
@@ -86,26 +98,17 @@ struct kmem_cache *kmem_cache_create(char *name, uint object_size)
 {
   uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
   uint cache_max_objs = (MP2_SLAB_SIZE - sizeof(struct kmem_cache)) / object_size;
-  void *objs_start;
   struct kmem_cache *cache;
   cache = (struct kmem_cache *)kalloc();
 
   safestrcpy(cache->name, name, MP2_CACHE_MAX_NAME);
   cache->object_size = object_size;
+  cache->cache_bitmap = 0;
   initlock(&cache->lock, name);
   INIT_LIST_HEAD(&cache->partial);
 
-  objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
-  cache->cache_freelist = cache_max_objs == 0 ? 0 : (void **)objs_start;
-  for (uint i = 0; i < cache_max_objs; i++) {
-    void **slot = (void **)((char *)objs_start + i * object_size);
-    *slot = (i < cache_max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
-  }
-  cache->cache_max_objs = cache_max_objs;
-  cache->cache_in_use = 0;
-
   printf("[SLAB] New kmem_cache (name: %s, object size: %u bytes, at: %p, max objects per slab: %u, support in cache obj: %u) is created\n",
-    name, object_size, cache, max_objs, cache->cache_max_objs);
+    name, object_size, cache, max_objs, cache_max_objs);
   return cache;
 }
 
@@ -119,29 +122,26 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
 {
   void *obj;
   struct slab *s;
+  uint cache_max_objs = (MP2_SLAB_SIZE - sizeof(struct kmem_cache)) / cache->object_size;
+  void *objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
+
   acquire(&cache->lock);
   printf("[SLAB] Alloc request on cache %s\n", cache->name);
 
-  if (cache->cache_freelist) {
-    obj = cache->cache_freelist;
-    cache->cache_freelist = (void **)*(cache->cache_freelist);
-    cache->cache_in_use += 1;
-    printf("[SLAB] Object %p in slab %p (%s) is allocated and initialized\n", obj, cache, cache->name);
-    release(&cache->lock);
-    return obj;
+  for (uint i = 0; i < cache_max_objs; i++) {
+    if (!(cache->cache_bitmap & (1u << i))) {
+      cache->cache_bitmap |= (1u << i);
+      obj = (char *)objs_start + i * cache->object_size;
+      printf("[SLAB] Object %p in slab %p (%s) is allocated and initialized\n", obj, cache, cache->name);
+      release(&cache->lock);
+      return obj;
+    }
   }
 
   if (list_empty(&cache->partial)) {
     struct slab *new_s = (struct slab *)kalloc();
     uint object_size = cache->object_size;
     uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
-
-    // void *objs_start = (void *)((char *)new_s + sizeof(struct slab));
-    // new_s->freelist = (void **)objs_start;
-    // for (uint i = 0; i < max_objs; i++) {
-    //   void **slot = (void **)((char *)objs_start + i * object_size);
-    //   *slot = (i < max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
-    // }
 
     new_s->max_objs = max_objs;
     new_s->in_use = 0;
@@ -172,10 +172,9 @@ void kmem_cache_free(struct kmem_cache *cache, void *obj)
   printf("[SLAB] Free %p in slab %p (%s)\n", obj, s, cache->name);
   
   if (s == (void *)cache) {
-    void **slot = (void **)obj;
-    *slot = (void *)(cache->cache_freelist);
-    cache->cache_freelist = (void **)obj;
-    cache->cache_in_use -= 1;
+    void *objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
+    uint idx = ((char *)obj - (char *)objs_start) / cache->object_size;
+    cache->cache_bitmap &= ~(1u << idx);
     printf("[SLAB] End of free\n");
     release(&cache->lock);
     return;
