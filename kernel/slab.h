@@ -1,6 +1,7 @@
 #pragma once
 
 #include "spinlock.h"
+#include "list.h"
 
 struct run {
   struct run *next;
@@ -17,7 +18,7 @@ struct slab {
   void **freelist;             // Linked list of free objects
 
   // TODO: Design how to link the slabs
-  struct slab *next;
+  struct list_head list;
 
   // TODO: you can add other members
   uint max_objs;
@@ -41,7 +42,7 @@ struct kmem_cache {
 
   // TODO: Add slab list(s)
   // struct slab *full;     // Completely allocated slabs (Optional)
-  struct slab *partial;  // Partially allocated or empty slabs
+  struct list_head partial;  // Partially allocated or empty slabs
 };
 
 /**

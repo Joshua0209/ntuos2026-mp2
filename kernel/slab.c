@@ -5,6 +5,7 @@
 #include "riscv.h"
 #include "defs.h"
 #include "slab.h"
+#include "list.h"
 
 void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *))
 {
@@ -29,12 +30,16 @@ void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *)
   }
 
   // print partial
-  if (cache->partial) {
+  if (!list_empty(&cache->partial)) {
+    struct slab *s;
     printf("[SLAB] \t[ partial\tslabs ]\n");
-    for (struct slab *s = cache->partial; s != 0; s = s->next) {
-      printf("[SLAB] \t\t[ slab %p ] { freelist: %p, nxt: %p, max_objs: %u }\n",
-        s, s->freelist, s->next, s->max_objs);
+    list_for_each_entry(s, &cache->partial, list) {
+      void *nxt = (s->list.next == &cache->partial)
+            ? (void *)0
+            : (void *)list_entry(s->list.next, struct slab, list);
 
+      printf("[SLAB] \t\t[ slab %p ] { freelist: %p, nxt: %p, max_objs: %u }\n",
+        s, s->freelist, nxt, s->max_objs);
       void *objs_start = (void *)((char *)s + sizeof(struct slab));
       for (uint i = 0; i < s->max_objs; i++) {
         void **slot = (void **)((char *)objs_start + i * cache->object_size);
@@ -60,7 +65,7 @@ struct kmem_cache *kmem_cache_create(char *name, uint object_size)
   safestrcpy(cache->name, name, MP2_CACHE_MAX_NAME);
   cache->object_size = object_size;
   initlock(&cache->lock, name);
-  cache->partial = 0;
+  INIT_LIST_HEAD(&cache->partial);
 
   objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
   cache->cache_freelist = cache_max_objs == 0 ? 0 : (void **)objs_start;
@@ -98,7 +103,7 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
     return obj;
   }
 
-  if (!cache->partial) {
+  if (list_empty(&cache->partial)) {
     struct slab *new_s = (struct slab *)kalloc();
     uint object_size = cache->object_size;
     uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
@@ -110,21 +115,20 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
       *slot = (i < max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
     }
 
-    new_s->next = 0;
     new_s->max_objs = max_objs;
     new_s->in_use = 0;
-    cache->partial = new_s;
+    list_add(&new_s->list, &cache->partial);
     printf("[SLAB] A new slab %p (%s) is allocated\n", new_s, cache->name);
   }
 
-  s = cache->partial;
+  s = list_first_entry(&cache->partial, struct slab, list);
   obj = s->freelist;
   s->in_use += 1;
   if (s->in_use < s->max_objs) {
     s->freelist = (void **)*(s->freelist);
   } else { // remove from partial
     s->freelist = 0;
-    cache->partial = s->next;
+    list_del_init(&s->list);
   }
 
   printf("[SLAB] Object %p in slab %p (%s) is allocated and initialized\n", obj, s, cache->name);
@@ -154,24 +158,18 @@ void kmem_cache_free(struct kmem_cache *cache, void *obj)
 
   
   if (s->in_use == s->max_objs) { // add to partial
-    s->next = cache->partial;
-    cache->partial = s;
+    list_add(&s->list, &cache->partial);
   }
   s->in_use -= 1;
 
   uint cnt = 0;
-  struct slab *prev = 0;
-  for (struct slab *ptr = cache->partial; ptr != 0; ptr = ptr->next) {
+  struct slab *ptr;
+  list_for_each_entry(ptr, &cache->partial, list) {
     cnt++;
-    if (ptr->next == s)
-      prev = ptr;
   }
 
   if (s->in_use == 0 && cnt > MP2_MIN_AVAIL_SLAB) {
-    if (cache->partial == s)
-      cache->partial = s->next;
-    else
-      prev->next = s->next;
+    list_del_init(&s->list);
     kfree(s);
     printf("[SLAB] Slab %p (%s) is freed due to save memory\n", s, cache->name);
   }
