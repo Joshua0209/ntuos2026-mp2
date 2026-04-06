@@ -14,13 +14,12 @@ struct slab {
   // TODO: Choose the type of freelist from
   //    1. void **
   //    2. struct run *
-  struct run *freelist;             // Linked list of free objects
+  void **freelist;             // Linked list of free objects
 
   // TODO: Design how to link the slabs
   struct slab *next;
 
   // TODO: you can add other members
-  // ...
   uint max_objs;
   uint in_use;
 };
@@ -37,7 +36,7 @@ struct kmem_cache {
   struct spinlock lock;          // Lock for cache management
 
   // TODO: Add slab list(s)
-  struct slab *full;     // Completely allocated slabs (Optional)
+  // struct slab *full;     // Completely allocated slabs (Optional)
   struct slab *partial;  // Partially allocated or empty slabs
 };
 
