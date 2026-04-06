@@ -35,6 +35,10 @@ struct kmem_cache {
   uint object_size;              // Size of a single object
   struct spinlock lock;          // Lock for cache management
 
+  void **cache_freelist;
+  uint cache_max_objs;
+  uint cache_in_use;
+
   // TODO: Add slab list(s)
   // struct slab *full;     // Completely allocated slabs (Optional)
   struct slab *partial;  // Partially allocated or empty slabs

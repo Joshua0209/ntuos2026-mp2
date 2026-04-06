@@ -8,21 +8,18 @@
 
 void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *))
 {
-  // TODO: Implement print_kmem_cache
-  // FIXME: in Internal Fragmentation Optimization
-  acquire(&cache->lock); // acquire the lock before modification
+  acquire(&cache->lock);
   printf("[SLAB] kmem_cache { name: %s, object_size: %u, at: %p, in_cache_obj: %u }\n",
-    cache->name, cache->object_size, cache, 0);
+    cache->name, cache->object_size, cache, cache->cache_max_objs);
 
-  // print partial
-  printf("[SLAB] \t[ partial\tslabs ]\n");
-  for (struct slab *s = cache->partial; s != 0; s = s->next) {
+  // print cache
+  if (cache->cache_max_objs > 0) {
+    printf("[SLAB] \t[ cache\tslabs ]\n");
     printf("[SLAB] \t\t[ slab %p ] { freelist: %p, nxt: %p, max_objs: %u }\n",
-      s, s->freelist, s->next, s->max_objs);
+      cache, cache->cache_freelist, (void *)0, cache->cache_max_objs);
 
-    // uint idx = 0;
-    void *objs_start = (void *)((char *)s + sizeof(struct slab));
-    for (uint i = 0; i < s->max_objs; i++) {
+    void *objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
+    for (uint i = 0; i < cache->cache_max_objs; i++) {
       void **slot = (void **)((char *)objs_start + i * cache->object_size);
       printf("[SLAB] \t\t\t[ idx %u ] { addr: %p, as_ptr: %p, as_obj: {",
         i, slot, *slot);
@@ -30,13 +27,33 @@ void print_kmem_cache(struct kmem_cache *cache, void (*slab_obj_printer)(void *)
       printf("} }\n");
     }
   }
+
+  // print partial
+  if (cache->partial) {
+    printf("[SLAB] \t[ partial\tslabs ]\n");
+    for (struct slab *s = cache->partial; s != 0; s = s->next) {
+      printf("[SLAB] \t\t[ slab %p ] { freelist: %p, nxt: %p, max_objs: %u }\n",
+        s, s->freelist, s->next, s->max_objs);
+
+      void *objs_start = (void *)((char *)s + sizeof(struct slab));
+      for (uint i = 0; i < s->max_objs; i++) {
+        void **slot = (void **)((char *)objs_start + i * cache->object_size);
+        printf("[SLAB] \t\t\t[ idx %u ] { addr: %p, as_ptr: %p, as_obj: {",
+          i, slot, *slot);
+        slab_obj_printer(slot);
+        printf("} }\n");
+      }
+    }
+  }
   printf("[SLAB] print_kmem_cache end\n");
-  release(&cache->lock); // release the lock before return
+  release(&cache->lock);
 }
 
 struct kmem_cache *kmem_cache_create(char *name, uint object_size)
 {
   uint max_objs = (MP2_SLAB_SIZE - sizeof(struct slab)) / object_size;
+  uint cache_max_objs = (MP2_SLAB_SIZE - sizeof(struct kmem_cache)) / object_size;
+  void *objs_start;
   struct kmem_cache *cache;
   cache = (struct kmem_cache *)kalloc();
 
@@ -45,8 +62,17 @@ struct kmem_cache *kmem_cache_create(char *name, uint object_size)
   initlock(&cache->lock, name);
   cache->partial = 0;
 
-  printf("[SLAB] New kmem_cache (name: %s, object size: %u bytes, at: %p, max objects per slab: %u, support in cache obj: %u) is created\n", 
-    name, object_size, cache, max_objs, 0); // FIXME: in Internal Fragmentation Optimization
+  objs_start = (void *)((char *)cache + sizeof(struct kmem_cache));
+  cache->cache_freelist = cache_max_objs == 0 ? 0 : (void **)objs_start;
+  for (uint i = 0; i < cache_max_objs; i++) {
+    void **slot = (void **)((char *)objs_start + i * object_size);
+    *slot = (i < cache_max_objs - 1) ? (char *)objs_start + (i+1) * object_size : 0;
+  }
+  cache->cache_max_objs = cache_max_objs;
+  cache->cache_in_use = 0;
+
+  printf("[SLAB] New kmem_cache (name: %s, object size: %u bytes, at: %p, max objects per slab: %u, support in cache obj: %u) is created\n",
+    name, object_size, cache, max_objs, cache->cache_max_objs);
   return cache;
 }
 
@@ -58,12 +84,20 @@ void kmem_cache_destroy(struct kmem_cache *cache)
 
 void *kmem_cache_alloc(struct kmem_cache *cache)
 {
-  // TODO: Implement kmem_cache_alloc
   void *obj;
   struct slab *s;
-  acquire(&cache->lock); // acquire the lock before modification
+  acquire(&cache->lock);
   printf("[SLAB] Alloc request on cache %s\n", cache->name);
-  // FIXME: Internal Fragmentation Optimization
+
+  if (cache->cache_freelist) {
+    obj = cache->cache_freelist;
+    cache->cache_freelist = (void **)*(cache->cache_freelist);
+    cache->cache_in_use += 1;
+    printf("[SLAB] Object %p in slab %p (%s) is allocated and initialized\n", obj, cache, cache->name);
+    release(&cache->lock);
+    return obj;
+  }
+
   if (!cache->partial) {
     struct slab *new_s = (struct slab *)kalloc();
     uint object_size = cache->object_size;
@@ -94,17 +128,26 @@ void *kmem_cache_alloc(struct kmem_cache *cache)
   }
 
   printf("[SLAB] Object %p in slab %p (%s) is allocated and initialized\n", obj, s, cache->name);
-  release(&cache->lock); // release the lock before return
+  release(&cache->lock);
   return obj;
 }
 
 void kmem_cache_free(struct kmem_cache *cache, void *obj)
 {
-  // TODO: Implement kmem_cache_free
   struct slab *s = (struct slab *)((uint64)obj & ~(MP2_SLAB_SIZE - 1));
-  acquire(&cache->lock); // acquire the lock before modification
+  acquire(&cache->lock);
   printf("[SLAB] Free %p in slab %p (%s)\n", obj, s, cache->name);
   
+  if (s == (void *)cache) {
+    void **slot = (void **)obj;
+    *slot = (void *)(cache->cache_freelist);
+    cache->cache_freelist = (void **)obj;
+    cache->cache_in_use -= 1;
+    printf("[SLAB] End of free\n");
+    release(&cache->lock);
+    return;
+  }
+
   void **slot = (void **)obj;
   *slot = (void *)s->freelist;
   s->freelist = (void **)obj;
@@ -133,5 +176,5 @@ void kmem_cache_free(struct kmem_cache *cache, void *obj)
     printf("[SLAB] Slab %p (%s) is freed due to save memory\n", s, cache->name);
   }
   printf("[SLAB] End of free\n");
-  release(&cache->lock); // release the lock before return
+  release(&cache->lock);
 }
