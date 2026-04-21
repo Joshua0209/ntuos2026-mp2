@@ -39,7 +39,7 @@ jobs:
       - name: Execute Tests (Grading)
         id: test
         run: |
-          ./mp.sh grade --json report.json --markdown grade-report.md
+          OFFICIAL_GRADING=1 ./mp.sh grade --json report.json --markdown grade-report.md
         env:
           REPO_IS_PRIVATE: ${{ github.event.repository.private }}
 
