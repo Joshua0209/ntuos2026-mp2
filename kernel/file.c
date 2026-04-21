@@ -31,7 +31,8 @@ void fileprint_metadata(void *f) {
 void
 fileinit(void)
 {
-  initlock(&ftable.lock, "ftable");
+  // initlock(&ftable.lock, "ftable");
+  file_cache = kmem_cache_create("file", sizeof(struct file));
 }
 
 // Allocate a file structure.
@@ -40,16 +41,18 @@ filealloc(void)
 {
   struct file *f;
 
-  acquire(&ftable.lock);
-  for(f = ftable.file; f < ftable.file + NFILE; f++){
-    if(f->ref == 0){
-      f->ref = 1;
-      release(&ftable.lock);
-      return f;
-    }
-  }
-  release(&ftable.lock);
-  return 0;
+  // acquire(&ftable.lock);
+  // for(f = ftable.file; f < ftable.file + NFILE; f++){
+  //   if(f->ref == 0){
+  //     f->ref = 1;
+  //     release(&ftable.lock);
+  //     return f;
+  //   }
+  // }
+  // release(&ftable.lock);
+  f = (struct file *)kmem_cache_alloc(file_cache);
+  f->ref = 1;
+  return f;
 }
 
 // Increment ref count for file f.
@@ -78,9 +81,10 @@ fileclose(struct file *f)
     return;
   }
   ff = *f;
-  f->ref = 0;
-  f->type = FD_NONE;
+  // f->ref = 0;
+  // f->type = FD_NONE;
   release(&ftable.lock);
+  kmem_cache_free(file_cache, f);
 
   if(ff.type == FD_PIPE){
     pipeclose(ff.pipe, ff.writable);
