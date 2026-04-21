@@ -1,0 +1,23 @@
+echo meow | tee f1 | tee f2 | tee f3 | tee f4 | tee f5 > f6
+checkstr f1 meow
+checkstr f2 meow
+checkstr f3 meow
+checkstr f4 meow
+checkstr f5 meow
+checkstr f6 meow
+echo shiritai | tee z1 | tee z2 | tee z3 | tee z4 | tee z5 > z6
+checkstr z1 shiritai
+checkstr z2 shiritai
+checkstr z3 shiritai
+checkstr z4 shiritai
+checkstr z5 shiritai
+checkstr z6 shiritai
+prepare
+echo Ok | gah os 40 | oak | tee t1 | gah meow 40 | oak | tee t2 | gah dir 40 | oak > ok
+echo eroiko | tee e1 | tee e2 | tee e3 | tee e4 | tee e5 > e6
+checkstr e1 eroiko
+checkstr e2 eroiko
+checkstr e3 eroiko
+checkstr e4 eroiko
+checkstr e5 eroiko
+checkstr e6 eroiko

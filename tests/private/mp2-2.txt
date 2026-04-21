@@ -1,0 +1,1 @@
+prepare | gah os 230 | oak | tee f1 | gah meow 240 | oak | tee f2 | gah dir 250 | oak > ok

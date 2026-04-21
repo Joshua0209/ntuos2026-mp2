@@ -1,0 +1,1 @@
+echo Ok | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak | oak > ok
